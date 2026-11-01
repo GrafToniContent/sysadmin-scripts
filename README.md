@@ -12,6 +12,7 @@ Follow along on TikTok [@graf_toni_content](https://www.tiktok.com/@graf_toni_co
 | 03 | [`03-Export-EntraUsers-Graph.ps1`](03-Export-EntraUsers-Graph.ps1) | Exports all Entra ID users with Microsoft Graph (AzureAD replacement) | Microsoft.Graph.Users |
 | 04 | [`04-Send-DiskAlert.ps1`](04-Send-DiskAlert.ps1) | Emails you before a server disk fills up – incl. unreachable servers | SMTP relay |
 | 05 | [`05-Restart-ServiceSelfHeal.ps1`](05-Restart-ServiceSelfHeal.ps1) | Restarts stopped services and notifies the team | – |
+| 06 | [`06-Intune-Script-Template.ps1`](06-Intune-Script-Template.ps1) | Template for Intune platform scripts: 64-bit relaunch, logging, exit codes | Intune |
 
 ## Quick start
 
