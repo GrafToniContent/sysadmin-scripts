@@ -13,6 +13,7 @@ Follow along on TikTok [@graf_toni_content](https://www.tiktok.com/@graf_toni_co
 | 04 | [`04-Send-DiskAlert.ps1`](04-Send-DiskAlert.ps1) | Emails you before a server disk fills up – incl. unreachable servers | SMTP relay |
 | 05 | [`05-Restart-ServiceSelfHeal.ps1`](05-Restart-ServiceSelfHeal.ps1) | Restarts stopped services and notifies the team | – |
 | 06 | [`06-Intune-Script-Template.ps1`](06-Intune-Script-Template.ps1) | Template for Intune platform scripts: 64-bit relaunch, logging, exit codes | Intune |
+| 07 | [`07-Get-HardeningAudit.ps1`](07-Get-HardeningAudit.ps1) | Read-only Windows 11 hardening audit (14 checks, optional HTML report) | Admin rights |
 
 ## Quick start
 
