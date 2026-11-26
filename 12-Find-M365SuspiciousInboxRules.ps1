@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Hunts for typical Business-Email-Compromise (BEC) inbox rules in Exchange Online.
 
@@ -22,6 +22,7 @@
 .NOTES
     Requires: ExchangeOnlineManagement. Large tenants: run per mailbox or overnight.
 #>
+#Requires -Modules ExchangeOnlineManagement
 [CmdletBinding()]
 param(
     [string[]]$Mailbox,

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Who is local administrator on your Windows 11 PCs?
 

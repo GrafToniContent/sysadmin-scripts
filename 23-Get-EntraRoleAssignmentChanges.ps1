@@ -14,6 +14,7 @@
 .EXAMPLE
     .\23-Get-EntraRoleAssignmentChanges.ps1 -Days 30
 #>
+#Requires -Modules Microsoft.Graph.Authentication, Microsoft.Graph.Reports
 [CmdletBinding()]
 param(
     [ValidateRange(1, 30)][int]$Days = 30,
@@ -28,8 +29,11 @@ $critical = 'Global Administrator', 'Privileged Role Administrator', 'Privileged
             'Cloud Application Administrator', 'User Administrator', 'Conditional Access Administrator'
 
 $since = (Get-Date).ToUniversalTime().AddDays(-$Days).ToString('yyyy-MM-ddTHH:mm:ssZ')
-$filter = "activityDateTime ge $since and (activityDisplayName eq 'Add member to role' or " +
-          "activityDisplayName eq 'Remove member from role' or activityDisplayName eq 'Add eligible member to role')"
+# startswith also catches the PIM variants, e.g. 'Add member to role completed (PIM activation)'
+$filter = "activityDateTime ge $since and (startswith(activityDisplayName,'Add member to role') or " +
+          "startswith(activityDisplayName,'Remove member from role') or " +
+          "startswith(activityDisplayName,'Add eligible member to role') or " +
+          "startswith(activityDisplayName,'Remove eligible member from role'))"
 
 $events = Get-MgAuditLogDirectoryAudit -All -Filter $filter
 

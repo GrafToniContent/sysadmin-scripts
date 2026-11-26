@@ -15,7 +15,7 @@ Follow along on TikTok [@graf_toni_content](https://www.tiktok.com/@graf_toni_co
 | 06 | [`06-Intune-Script-Template.ps1`](06-Intune-Script-Template.ps1) | Template for Intune platform scripts: 64-bit relaunch, logging, exit codes | Intune |
 | 07 | [`07-Get-HardeningAudit.ps1`](07-Get-HardeningAudit.ps1) | Read-only Windows 11 hardening audit (14 checks, optional HTML report) | Admin rights |
 | 08 | [`08-Get-M365ServiceHealth.ps1`](08-Get-M365ServiceHealth.ps1) | Microsoft 365 service status, open incidents, watch mode, Teams alerts, monitoring exit codes | Microsoft.Graph |
-| 09 | [`09-Get-M365SecurityAudit.ps1`](09-Get-M365SecurityAudit.ps1) | Read-only M365 / Entra ID security audit with HTML report (CA, MFA, admins, consent, Exchange) | Microsoft.Graph, ExchangeOnlineManagement |
+| 09 | [`09-Get-M365SecurityAudit.ps1`](09-Get-M365SecurityAudit.ps1) | Read-only M365 / Entra ID security audit with HTML report (CA, MFA, admins, consent, Exchange) | Microsoft.Graph (incl. Identity.Governance), ExchangeOnlineManagement |
 | 10 | [`10-Set-M365Hardening.ps1`](10-Set-M365Hardening.ps1) | M365 baseline hardening – opt-in, -WhatIf, CA policies report-only, break-glass required | Microsoft.Graph, ExchangeOnlineManagement |
 | 11 | [`11-Get-LocalAdminReport.ps1`](11-Get-LocalAdminReport.ps1) | Lists local administrators on many Windows PCs and flags unexpected members | PowerShell Remoting |
 | 12 | [`12-Find-M365SuspiciousInboxRules.ps1`](12-Find-M365SuspiciousInboxRules.ps1) | Hunts BEC inbox rules: external forwarding, hidden folders, suspicious names | ExchangeOnlineManagement |
@@ -52,7 +52,7 @@ Unblock-File .\*.ps1
 
 - **Test in a lab first.** These scripts change real accounts and services.
 - Read the script – you should understand what runs in your environment.
-- Scripts 01 and 02 support `-WhatIf`. Use it.
+- Scripts 01, 02, 10 and 15 support `-WhatIf`. Use it.
 - The password file from script 01 contains initial passwords: hand it over securely and delete it.
 
 ## Contributing

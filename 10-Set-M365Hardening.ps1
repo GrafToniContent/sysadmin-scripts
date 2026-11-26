@@ -12,7 +12,7 @@
       RestrictGuestInvites    Only admins + Guest Inviter role may invite guests
       RestrictUserCreation    Users can't register apps or create new tenants
       CABlockLegacyAuth       CA policy: block legacy authentication   (report-only, Entra P1)
-      CAMfaAdmins             CA policy: MFA for 14 admin roles        (report-only, Entra P1)
+      CAMfaAdmins             CA policy: MFA for 15 admin roles        (report-only, Entra P1)
       CAMfaAllUsers           CA policy: MFA for all users             (report-only, Entra P1)
       EnableUnifiedAuditLog   Turn on the unified audit log            (Exchange Online)
       EnableMailboxAudit      Make sure mailbox auditing is on         (Exchange Online)
@@ -33,6 +33,7 @@
     Test in a test tenant first. Inform users before disabling SMTP AUTH
     (multifunction printers / scanners / old apps!). Use at your own risk.
 #>
+#Requires -Modules Microsoft.Graph.Authentication, Microsoft.Graph.Identity.SignIns, Microsoft.Graph.Users
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
     [Parameter(Mandatory)]
@@ -52,7 +53,7 @@ if ($Measure -contains 'All') {
         'CAMfaAdmins', 'CAMfaAllUsers', 'EnableUnifiedAuditLog', 'EnableMailboxAudit', 'DisableSmtpAuth', 'BlockExternalForwarding'
 }
 
-function Write-Log([string]$Msg, [string]$Color = 'White') {
+function Write-HardeningLog([string]$Msg, [string]$Color = 'White') {
     $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $Msg"
     Write-Host $line -ForegroundColor $Color
     Add-Content -Path $LogPath -Value $line -WhatIf:$false
@@ -71,48 +72,51 @@ $excludeIds = @()
 if ($Measure | Where-Object { $_ -in $graphMeasures }) {
     Connect-MgGraph -NoWelcome -Scopes 'Policy.ReadWrite.Authorization', 'Policy.ReadWrite.ConditionalAccess',
         'Policy.Read.All', 'Application.Read.All', 'User.Read.All'
-    Write-Log "Connected to Graph tenant $((Get-MgContext).TenantId)" 'Cyan'
+    Write-HardeningLog "Connected to Graph tenant $((Get-MgContext).TenantId)" 'Cyan'
 
     foreach ($upn in $BreakGlassUpn) {
         $u = Get-MgUser -UserId $upn -Property Id, UserPrincipalName
         $excludeIds += $u.Id
-        Write-Log "Break-glass account excluded from CA: $($u.UserPrincipalName)" 'Cyan'
+        Write-HardeningLog "Break-glass account excluded from CA: $($u.UserPrincipalName)" 'Cyan'
     }
 }
 
 $authPolicyUri = 'https://graph.microsoft.com/v1.0/policies/authorizationPolicy'
 $caUri = 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies'
 
-function New-CaPolicyReportOnly([string]$Name, [hashtable]$Body) {
+function New-CaPolicyReportOnly {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    param([string]$Name, [hashtable]$Body)
     $existing = Get-MgIdentityConditionalAccessPolicy -All | Where-Object DisplayName -eq $Name
-    if ($existing) { Write-Log "SKIP  CA policy '$Name' already exists (state: $($existing.State))" 'DarkGray'; return }
+    if ($existing) { Write-HardeningLog "SKIP  CA policy '$Name' already exists (state: $($existing.State))" 'DarkGray'; return }
     if ($PSCmdlet.ShouldProcess($Name, 'Create Conditional Access policy (report-only)')) {
         $Body.displayName = $Name
         $Body.state = 'enabledForReportingButNotEnforced'
         Invoke-MgGraphRequest -Method POST -Uri $caUri -Body ($Body | ConvertTo-Json -Depth 10) -ContentType 'application/json' | Out-Null
-        Write-Log "DONE  CA policy '$Name' created in REPORT-ONLY mode" 'Green'
+        Write-HardeningLog "DONE  CA policy '$Name' created in REPORT-ONLY mode" 'Green'
     }
 }
 
-switch ($Measure) {
+$failed = 0
+foreach ($m in $Measure) { try { switch ($m) {
     'DisableUserConsent' {
         if ($PSCmdlet.ShouldProcess('Authorization policy', 'Disable user consent for apps')) {
             $body = @{ defaultUserRolePermissions = @{ permissionGrantPoliciesAssigned = @() } }
             Invoke-MgGraphRequest -Method PATCH -Uri $authPolicyUri -Body ($body | ConvertTo-Json -Depth 5) -ContentType 'application/json'
-            Write-Log 'DONE  User consent disabled. Tip: enable the admin consent workflow in Entra ID > Enterprise apps.' 'Green'
+            Write-HardeningLog 'DONE  User consent disabled. Tip: enable the admin consent workflow in Entra ID > Enterprise apps.' 'Green'
         }
     }
     'RestrictGuestInvites' {
         if ($PSCmdlet.ShouldProcess('Authorization policy', 'Restrict guest invites to admins + Guest Inviter')) {
             Invoke-MgGraphRequest -Method PATCH -Uri $authPolicyUri -Body (@{ allowInvitesFrom = 'adminsAndGuestInviters' } | ConvertTo-Json) -ContentType 'application/json'
-            Write-Log 'DONE  Guest invitations restricted to admins and Guest Inviter role.' 'Green'
+            Write-HardeningLog 'DONE  Guest invitations restricted to admins and Guest Inviter role.' 'Green'
         }
     }
     'RestrictUserCreation' {
         if ($PSCmdlet.ShouldProcess('Authorization policy', 'Block app registration and tenant creation by users')) {
             $body = @{ defaultUserRolePermissions = @{ allowedToCreateApps = $false; allowedToCreateTenants = $false } }
             Invoke-MgGraphRequest -Method PATCH -Uri $authPolicyUri -Body ($body | ConvertTo-Json -Depth 5) -ContentType 'application/json'
-            Write-Log 'DONE  Users can no longer register apps or create tenants.' 'Green'
+            Write-HardeningLog 'DONE  Users can no longer register apps or create tenants.' 'Green'
         }
     }
     'CABlockLegacyAuth' {
@@ -126,7 +130,7 @@ switch ($Measure) {
         }
     }
     'CAMfaAdmins' {
-        # Role template IDs of privileged roles (Microsoft recommendation)
+        # Role template IDs of privileged roles (Microsoft recommendation + Teams Administrator)
         $roles = @(
             '62e90394-69f5-4237-9190-012177145e10', # Global Administrator
             'e8611ab8-c189-46e8-94e1-60213ab1f814', # Privileged Role Administrator
@@ -137,6 +141,7 @@ switch ($Measure) {
             'fe930be7-5e62-47db-91af-98c3a49a38b1', # User Administrator
             '9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3', # Application Administrator
             '158c047a-c907-4556-b7ef-446551a6b5f7', # Cloud Application Administrator
+            'b1be1c3e-b65d-4f19-8427-f6fa0d97feb9', # Conditional Access Administrator
             'c4e39bd9-1100-46d3-8c65-fb160da0071f', # Authentication Administrator
             'b0f54661-2d74-4c50-afa3-1ec803f12efe', # Billing Administrator
             '729827e3-9c14-49f7-bb1b-9608f156bbb8', # Helpdesk Administrator
@@ -162,51 +167,54 @@ switch ($Measure) {
             grantControls = @{ operator = 'OR'; builtInControls = @('mfa') }
         }
     }
-}
+} } catch { $failed++; Write-HardeningLog "FAIL  $m : $($_.Exception.Message)" 'Red' } }
 #endregion
 
 #region --- Exchange Online --------------------------------------------------------
 if ($Measure | Where-Object { $_ -in $exoMeasures }) {
     Connect-ExchangeOnline -ShowBanner:$false
-    Write-Log 'Connected to Exchange Online' 'Cyan'
+    Write-HardeningLog 'Connected to Exchange Online' 'Cyan'
 
-    switch ($Measure) {
+    foreach ($m in $Measure) { try { switch ($m) {
         'EnableUnifiedAuditLog' {
-            if ((Get-AdminAuditLogConfig).UnifiedAuditLogIngestionEnabled) { Write-Log 'SKIP  Unified audit log already enabled' 'DarkGray' }
+            if ((Get-AdminAuditLogConfig).UnifiedAuditLogIngestionEnabled) { Write-HardeningLog 'SKIP  Unified audit log already enabled' 'DarkGray' }
             elseif ($PSCmdlet.ShouldProcess('Organization', 'Enable unified audit log')) {
                 Set-AdminAuditLogConfig -UnifiedAuditLogIngestionEnabled $true
-                Write-Log 'DONE  Unified audit log enabled (can take up to 60 min).' 'Green'
+                Write-HardeningLog 'DONE  Unified audit log enabled (can take up to 60 min).' 'Green'
             }
         }
         'EnableMailboxAudit' {
-            if (-not (Get-OrganizationConfig).AuditDisabled) { Write-Log 'SKIP  Mailbox auditing already on' 'DarkGray' }
+            if (-not (Get-OrganizationConfig).AuditDisabled) { Write-HardeningLog 'SKIP  Mailbox auditing already on' 'DarkGray' }
             elseif ($PSCmdlet.ShouldProcess('Organization', 'Enable mailbox auditing')) {
                 Set-OrganizationConfig -AuditDisabled $false
-                Write-Log 'DONE  Mailbox auditing enabled.' 'Green'
+                Write-HardeningLog 'DONE  Mailbox auditing enabled.' 'Green'
             }
         }
         'DisableSmtpAuth' {
             # Show who still uses SMTP AUTH explicitly per mailbox (those keep working)
             $perMailbox = Get-CASMailbox -ResultSize Unlimited | Where-Object SmtpClientAuthenticationDisabled -eq $false
-            if ($perMailbox) { Write-Log "INFO  Mailboxes with explicit SMTP AUTH exception: $($perMailbox.PrimarySmtpAddress -join ', ')" 'Yellow' }
-            if ((Get-TransportConfig).SmtpClientAuthenticationDisabled) { Write-Log 'SKIP  SMTP AUTH already disabled org-wide' 'DarkGray' }
+            if ($perMailbox) { Write-HardeningLog "INFO  Mailboxes with explicit SMTP AUTH exception: $($perMailbox.PrimarySmtpAddress -join ', ')" 'Yellow' }
+            if ((Get-TransportConfig).SmtpClientAuthenticationDisabled) { Write-HardeningLog 'SKIP  SMTP AUTH already disabled org-wide' 'DarkGray' }
             elseif ($PSCmdlet.ShouldProcess('Organization', 'Disable SMTP AUTH org-wide')) {
                 Set-TransportConfig -SmtpClientAuthenticationDisabled $true
-                Write-Log 'DONE  SMTP AUTH disabled org-wide. Exceptions: Set-CASMailbox <mbx> -SmtpClientAuthenticationDisabled $false' 'Green'
+                Write-HardeningLog 'DONE  SMTP AUTH disabled org-wide. Exceptions: Set-CASMailbox <mbx> -SmtpClientAuthenticationDisabled $false' 'Green'
             }
         }
         'BlockExternalForwarding' {
             $p = Get-HostedOutboundSpamFilterPolicy | Where-Object IsDefault
-            if ($p.AutoForwardingMode -eq 'Off') { Write-Log 'SKIP  External auto-forwarding already Off' 'DarkGray' }
+            if ($p.AutoForwardingMode -eq 'Off') { Write-HardeningLog 'SKIP  External auto-forwarding already Off' 'DarkGray' }
             elseif ($PSCmdlet.ShouldProcess($p.Identity, 'Set AutoForwardingMode Off')) {
                 Set-HostedOutboundSpamFilterPolicy -Identity $p.Identity -AutoForwardingMode Off
-                Write-Log 'DONE  Automatic external forwarding blocked.' 'Green'
+                Write-HardeningLog 'DONE  Automatic external forwarding blocked (default policy).' 'Green'
             }
+            # Custom policies override the default for their users - only report them, never change them silently
+            $custom = @(Get-HostedOutboundSpamFilterPolicy | Where-Object { -not $_.IsDefault -and $_.AutoForwardingMode -eq 'On' })
+            if ($custom) { Write-HardeningLog "WARN  Custom outbound policies still allow forwarding: $($custom.Name -join ', ')" 'Yellow' }
         }
-    }
+    } } catch { $failed++; Write-HardeningLog "FAIL  $m : $($_.Exception.Message)" 'Red' } }
     Disconnect-ExchangeOnline -Confirm:$false
 }
 #endregion
 
 if (Get-MgContext) { Disconnect-MgGraph | Out-Null }
-Write-Log "Finished. Log: $LogPath" 'Cyan'
+Write-HardeningLog "Finished with $failed failed measure(s). Log: $LogPath" $(if ($failed) { 'Red' } else { 'Cyan' })

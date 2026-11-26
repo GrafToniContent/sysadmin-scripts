@@ -30,6 +30,9 @@
     Graf Toni Content - "Automate it once. Never do it again."
     Test in a lab environment first. Requires the ActiveDirectory module (RSAT).
 #>
+#Requires -Modules ActiveDirectory
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '', Justification = 'Random one-time initial password that must be handed over and changed at first logon.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'PasswordFile', Justification = 'PasswordFile is a file path, not a password.')]
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)][string]$CsvPath,
@@ -40,7 +43,7 @@ param(
 
 Import-Module ActiveDirectory -ErrorAction Stop
 
-function New-RandomPassword {
+function Get-RandomPassword {
     # Guarantees upper, lower, digit and special character (AD complexity rules).
     # Get-Random is fine for one-time initial passwords that must be changed at first logon.
     param([int]$Length = 16)
@@ -62,6 +65,18 @@ function ConvertTo-SamAccountName {
 
 $users = Import-Csv -Path $CsvPath
 
+# Create the password file up front so that ONLY the current user can read it
+# (otherwise it inherits the folder permissions, e.g. a shared drive or desktop).
+if (-not $WhatIfPreference -and -not (Test-Path -Path $PasswordFile)) {
+    Set-Content -Path $PasswordFile -Value '"User","InitialPassword"' -WhatIf:$false
+    $acl = Get-Acl -Path $PasswordFile
+    $acl.SetAccessRuleProtection($true, $false)            # remove inherited permissions
+    foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRule($rule) }
+    $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($me, 'FullControl', 'Allow'))
+    Set-Acl -Path $PasswordFile -AclObject $acl -WhatIf:$false
+}
+
 foreach ($u in $users) {
     if ([string]::IsNullOrWhiteSpace($u.FirstName) -or [string]::IsNullOrWhiteSpace($u.LastName)) {
         Write-Warning "Row without first or last name - skipped"
@@ -75,7 +90,7 @@ foreach ($u in $users) {
         continue
     }
 
-    $plain  = New-RandomPassword
+    $plain  = Get-RandomPassword
     $params = @{
         Name                  = "$($u.FirstName) $($u.LastName)"
         GivenName             = $u.FirstName
@@ -99,7 +114,7 @@ foreach ($u in $users) {
         try {
             New-ADUser @params -ErrorAction Stop
             [pscustomobject]@{ User = $sam; InitialPassword = $plain } |
-                Export-Csv -Path $PasswordFile -Append -NoTypeInformation
+                Export-Csv -Path $PasswordFile -Append -NoTypeInformation -WhatIf:$false
             Write-Host "Created $sam" -ForegroundColor Green
         }
         catch {

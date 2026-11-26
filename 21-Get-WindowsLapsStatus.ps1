@@ -19,6 +19,7 @@
 .EXAMPLE
     .\21-Get-WindowsLapsStatus.ps1 -SearchBase 'OU=Workstations,DC=contoso,DC=local' -CsvPath C:\Temp\laps.csv
 #>
+#Requires -Modules ActiveDirectory
 [CmdletBinding()]
 param(
     [string]$SearchBase,
@@ -27,7 +28,13 @@ param(
 )
 
 Import-Module ActiveDirectory -ErrorAction Stop
-$props = 'OperatingSystem', 'LastLogonDate', 'msLAPS-PasswordExpirationTime', 'ms-Mcs-AdmPwdExpirationTime'
+# Get-ADComputer fails if a requested attribute is not in the schema (e.g. legacy LAPS never installed)
+$schemaNC = (Get-ADRootDSE).schemaNamingContext
+$lapsAttr = 'msLAPS-PasswordExpirationTime', 'ms-Mcs-AdmPwdExpirationTime' | Where-Object {
+    Get-ADObject -SearchBase $schemaNC -Filter "lDAPDisplayName -eq '$_'"
+}
+if (-not $lapsAttr) { Write-Warning 'Neither Windows LAPS nor legacy LAPS is in the AD schema - run Update-LapsADSchema.' }
+$props = @('OperatingSystem', 'LastLogonDate') + @($lapsAttr)
 $p = @{ Filter = "Enabled -eq 'True' -and OperatingSystem -like 'Windows*'"; Properties = $props }
 if ($SearchBase) { $p.SearchBase = $SearchBase }
 

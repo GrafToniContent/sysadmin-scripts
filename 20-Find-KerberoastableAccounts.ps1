@@ -18,6 +18,7 @@
 .EXAMPLE
     .\20-Find-KerberoastableAccounts.ps1
 #>
+#Requires -Modules ActiveDirectory
 [CmdletBinding()]
 param(
     [int]$MaxPasswordAgeDays = 365,
@@ -50,7 +51,7 @@ $rows = foreach ($a in $accounts) {
 
 if (-not $rows) { Write-Host 'No user accounts with SPNs found.' -ForegroundColor Green; return }
 $order = @{ HIGH = 0; MEDIUM = 1; LOW = 2 }
-$rows = $rows | Sort-Object @{e = { $order[$_.Risk] } }, PwdAgeDays -Descending
+$rows = $rows | Sort-Object @{ e = { $order[$_.Risk] }; Ascending = $true }, @{ e = 'PwdAgeDays'; Descending = $true }
 foreach ($r in $rows) {
     $color = @{ HIGH = 'Red'; MEDIUM = 'Yellow'; LOW = 'Gray' }[$r.Risk]
     Write-Host ("{0,-6} {1,-22} {2,5} d  {3}" -f $r.Risk, $r.Account, $r.PwdAgeDays, $r.Findings) -ForegroundColor $color

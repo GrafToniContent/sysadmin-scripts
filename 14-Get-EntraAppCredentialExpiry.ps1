@@ -6,6 +6,7 @@
     Expired app secrets are one of the most common causes of "M365 integration suddenly
     stopped working" (backup, scanner-to-mail, monitoring, CRM sync ...).
     Also flags secrets with an extremely long lifetime (> 2 years = security risk).
+    Also checks enterprise apps (service principals), e.g. SAML signing certificates.
 
     Exit codes for monitoring (ServerEye, PRTG ...):
       0 = OK, 1 = something expires within -WarningDays, 2 = something expires within -CriticalDays
@@ -19,6 +20,7 @@
 .NOTES
     Permission: Application.Read.All. Module: Microsoft.Graph.Applications
 #>
+#Requires -Modules Microsoft.Graph.Authentication, Microsoft.Graph.Applications
 [CmdletBinding()]
 param(
     [int]$WarningDays = 30,
@@ -38,7 +40,15 @@ if ($ClientId -and $CertificateThumbprint -and $TenantId) {
 }
 
 $now = Get-Date
-$apps = Get-MgApplication -All -Property Id, AppId, DisplayName, PasswordCredentials, KeyCredentials
+$apps = @(Get-MgApplication -All -Property Id, AppId, DisplayName, PasswordCredentials, KeyCredentials |
+    Select-Object *, @{ n = 'Source'; e = { 'App registration' } })
+# Enterprise apps carry their own credentials (e.g. SAML signing certificates). Only the 'Verify' half
+# of a certificate pair is used, so each certificate shows up once.
+$apps += @(Get-MgServicePrincipal -All -Property Id, AppId, DisplayName, PasswordCredentials, KeyCredentials |
+    Where-Object { $_.PasswordCredentials -or $_.KeyCredentials } |
+    Select-Object Id, AppId, DisplayName, PasswordCredentials,
+        @{ n = 'KeyCredentials'; e = { $_.KeyCredentials | Where-Object Usage -eq 'Verify' } },
+        @{ n = 'Source'; e = { 'Enterprise app' } })
 
 $rows = foreach ($app in $apps) {
     $creds = @($app.PasswordCredentials | ForEach-Object { $_ | Add-Member -NotePropertyName Kind -NotePropertyValue 'Secret' -PassThru -Force }) +
@@ -56,7 +66,7 @@ $rows = foreach ($app in $apps) {
         $note = if ($c.Kind -eq 'Secret' -and $lifetime -gt 730) { "Long-lived secret ($lifetime days)" } else { '' }
 
         [pscustomobject]@{
-            Status = $status; App = $app.DisplayName; AppId = $app.AppId; Type = $c.Kind
+            Status = $status; App = $app.DisplayName; Source = $app.Source; AppId = $app.AppId; Type = $c.Kind
             Name = $c.DisplayName; Expires = $end.ToString('yyyy-MM-dd'); DaysLeft = $days; Note = $note
         }
     }
@@ -65,7 +75,7 @@ $rows = foreach ($app in $apps) {
 $order = @{ EXPIRED = 0; CRITICAL = 1; WARNING = 2; OK = 3 }
 $view = $rows | Where-Object { $IncludeOk -or $_.Status -ne 'OK' -or $_.Note } | Sort-Object @{ e = { $order[$_.Status] } }, DaysLeft
 
-if ($view) { $view | Format-Table Status, App, Type, Name, Expires, DaysLeft, Note -AutoSize }
+if ($view) { $view | Format-Table Status, App, Source, Type, Name, Expires, DaysLeft, Note -AutoSize }
 else { Write-Host "No credentials expiring within $WarningDays days." -ForegroundColor Green }
 
 if ($CsvPath) { $rows | Export-Csv -Path $CsvPath -NoTypeInformation -Encoding UTF8 }
