@@ -43,6 +43,7 @@
     Requires: Install-Module Microsoft.Graph.Authentication, Microsoft.Graph.Devices.ServiceAnnouncement
 #>
 #Requires -Modules Microsoft.Graph.Authentication, Microsoft.Graph.Devices.ServiceAnnouncement
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Parameters are used inside functions / script blocks (analyzer false positive).')]
 [CmdletBinding()]
 param(
     [string[]]$Service,

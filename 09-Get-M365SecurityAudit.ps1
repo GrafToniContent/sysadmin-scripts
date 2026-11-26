@@ -32,6 +32,7 @@
     These are reported as INFO if the license is missing.
 #>
 #Requires -Modules Microsoft.Graph.Authentication, Microsoft.Graph.Identity.SignIns, Microsoft.Graph.Identity.DirectoryManagement, Microsoft.Graph.Identity.Governance, Microsoft.Graph.Users, Microsoft.Graph.Reports, Microsoft.Graph.Security
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Parameters are used inside functions / script blocks (analyzer false positive).')]
 [CmdletBinding()]
 param(
     [switch]$IncludeExchange,

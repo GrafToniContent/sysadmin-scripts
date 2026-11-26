@@ -31,6 +31,8 @@
     Test in a lab environment first. Requires the ActiveDirectory module (RSAT).
 #>
 #Requires -Modules ActiveDirectory
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '', Justification = 'Random one-time initial password that must be handed over and changed at first logon.')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'PasswordFile', Justification = 'PasswordFile is a file path, not a password.')]
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)][string]$CsvPath,
@@ -41,7 +43,7 @@ param(
 
 Import-Module ActiveDirectory -ErrorAction Stop
 
-function New-RandomPassword {
+function Get-RandomPassword {
     # Guarantees upper, lower, digit and special character (AD complexity rules).
     # Get-Random is fine for one-time initial passwords that must be changed at first logon.
     param([int]$Length = 16)
@@ -88,7 +90,7 @@ foreach ($u in $users) {
         continue
     }
 
-    $plain  = New-RandomPassword
+    $plain  = Get-RandomPassword
     $params = @{
         Name                  = "$($u.FirstName) $($u.LastName)"
         GivenName             = $u.FirstName
