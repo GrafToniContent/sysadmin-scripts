@@ -17,6 +17,7 @@
 .EXAMPLE
     .\19-Get-M365SharingSettings.ps1
 #>
+#Requires -Modules Microsoft.Graph.Authentication
 [CmdletBinding()]
 param()
 

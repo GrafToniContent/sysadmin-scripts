@@ -42,6 +42,7 @@
 .NOTES
     Requires: Install-Module Microsoft.Graph.Authentication, Microsoft.Graph.Devices.ServiceAnnouncement
 #>
+#Requires -Modules Microsoft.Graph.Authentication, Microsoft.Graph.Devices.ServiceAnnouncement
 [CmdletBinding()]
 param(
     [string[]]$Service,

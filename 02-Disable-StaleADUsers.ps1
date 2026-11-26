@@ -22,6 +22,7 @@
     Graf Toni Content - "Automate it once. Never do it again."
     Review the report before disabling: service accounts often never log on interactively.
 #>
+#Requires -Modules ActiveDirectory
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
     [ValidateRange(1, 3650)][int]$Days = 90,

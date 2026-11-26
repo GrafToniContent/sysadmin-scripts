@@ -27,10 +27,11 @@
 
 .NOTES
     Modules: Microsoft.Graph (Authentication, Identity.SignIns, Identity.DirectoryManagement,
-             Users, Reports, Security), ExchangeOnlineManagement (for -IncludeExchange)
+             Identity.Governance, Users, Reports, Security), ExchangeOnlineManagement (for -IncludeExchange)
     Some checks need Entra ID P1/P2 (Conditional Access, sign-in activity, registration details).
     These are reported as INFO if the license is missing.
 #>
+#Requires -Modules Microsoft.Graph.Authentication, Microsoft.Graph.Identity.SignIns, Microsoft.Graph.Identity.DirectoryManagement, Microsoft.Graph.Identity.Governance, Microsoft.Graph.Users, Microsoft.Graph.Reports, Microsoft.Graph.Security
 [CmdletBinding()]
 param(
     [switch]$IncludeExchange,
@@ -94,8 +95,10 @@ Invoke-Check 'Conditional Access' 'Policies' {
     if (-not $caPolicies) { Add-Result 'Conditional Access' 'Policies' 'INFO' 'No CA policies found (or no Entra ID P1).'; return }
     $enabled = $caPolicies | Where-Object State -eq 'enabled'
 
+    # Must block BOTH legacy client types for all users - blocking only ActiveSync is not enough
     $legacy = $enabled | Where-Object {
-        ($_.Conditions.ClientAppTypes -contains 'exchangeActiveSync' -or $_.Conditions.ClientAppTypes -contains 'other') -and
+        $_.Conditions.ClientAppTypes -contains 'exchangeActiveSync' -and $_.Conditions.ClientAppTypes -contains 'other' -and
+        $_.Conditions.Users.IncludeUsers -contains 'All' -and
         $_.GrantControls.BuiltInControls -contains 'block'
     }
     if ($legacy) { Add-Result 'Conditional Access' 'Block legacy authentication' 'PASS' ($legacy.DisplayName -join ', ') }
@@ -120,10 +123,20 @@ Invoke-Check 'Conditional Access' 'Policies' {
 }
 
 Invoke-Check 'Entra ID' 'Global Administrators' {
-    $role = Get-MgDirectoryRole -Filter "roleTemplateId eq '62e90394-69f5-4237-9190-012177145e10'"
-    $members = @(Get-MgDirectoryRoleMember -DirectoryRoleId $role.Id -All)
-    $names = ($members | ForEach-Object { $_.AdditionalProperties.userPrincipalName }) -join ', '
-    $n = $members.Count
+    # Count active AND PIM-eligible assignments, resolve role-assignable groups to their members
+    $gaId = '62e90394-69f5-4237-9190-012177145e10'
+    $principals = @(Get-MgRoleManagementDirectoryRoleAssignment -Filter "roleDefinitionId eq '$gaId'" -ExpandProperty Principal -All).Principal
+    try { $principals += @(Get-MgRoleManagementDirectoryRoleEligibilitySchedule -Filter "roleDefinitionId eq '$gaId'" -ExpandProperty Principal -All).Principal } catch { Write-Verbose "Eligible assignments not readable (Entra ID P2 needed): $($_.Exception.Message)" }
+    $admins = foreach ($p in $principals) {
+        if ($p.AdditionalProperties['@odata.type'] -eq '#microsoft.graph.group') {
+            Get-MgGroupMember -GroupId $p.Id -All | ForEach-Object { if ($_.AdditionalProperties.userPrincipalName) { $_.AdditionalProperties.userPrincipalName } else { $_.Id } }
+        }
+        elseif ($p.AdditionalProperties.userPrincipalName) { $p.AdditionalProperties.userPrincipalName }
+        else { "$($p.AdditionalProperties.displayName) ($($p.Id))" }
+    }
+    $admins = @($admins | Sort-Object -Unique)
+    $names = $admins -join ', '
+    $n = $admins.Count
     if ($n -lt 2) { Add-Result 'Entra ID' 'Global Administrators' 'WARN' "$n Global Admin(s): $names" 'At least 2 (incl. one break-glass account).' }
     elseif ($n -le 4) { Add-Result 'Entra ID' 'Global Administrators' 'PASS' "$n Global Admins: $names" }
     else { Add-Result 'Entra ID' 'Global Administrators' 'FAIL' "$n Global Admins: $names" 'Reduce to max. 4, use least-privilege roles (Exchange Admin, User Admin ...).' }
@@ -148,11 +161,14 @@ Invoke-Check 'Entra ID' 'Authorization policy' {
     $ap = Get-MgPolicyAuthorizationPolicy
     $perm = $ap.DefaultUserRolePermissions
 
-    $grant = @($perm.PermissionGrantPoliciesAssigned)
+    # Only the ManagePermissionGrantsForSelf.* entries control user consent
+    $grant = @($perm.PermissionGrantPoliciesAssigned | Where-Object { $_ -like 'ManagePermissionGrantsForSelf.*' })
     if ($grant -match 'microsoft-user-default-legacy') {
         Add-Result 'Entra ID' 'User consent for apps' 'FAIL' 'Users may consent to any app (consent phishing risk).' 'Disable user consent or allow only verified publishers + admin consent workflow.'
     } elseif ($grant -match 'microsoft-user-default-low') {
         Add-Result 'Entra ID' 'User consent for apps' 'WARN' 'Users may consent to verified publishers (low-risk permissions).'
+    } elseif ($grant) {
+        Add-Result 'Entra ID' 'User consent for apps' 'WARN' "Other consent policy assigned: $($grant -join ', ')" 'Review what this permission grant policy allows users to consent to.'
     } else {
         Add-Result 'Entra ID' 'User consent for apps' 'PASS' 'User consent disabled.'
     }
@@ -213,9 +229,10 @@ if ($IncludeExchange) {
     }
 
     Invoke-Check 'Exchange Online' 'External auto-forwarding' {
-        $p = Get-HostedOutboundSpamFilterPolicy | Where-Object IsDefault
-        if ($p.AutoForwardingMode -eq 'On') { Add-Result 'Exchange Online' 'External auto-forwarding' 'FAIL' 'Allowed (On).' 'Set AutoForwardingMode to Off (data exfiltration / BEC).' }
-        else { Add-Result 'Exchange Online' 'External auto-forwarding' 'PASS' "Mode: $($p.AutoForwardingMode) (Automatic = blocked)." }
+        # Check ALL outbound spam policies - custom policies override the default for their users
+        $on = @(Get-HostedOutboundSpamFilterPolicy | Where-Object AutoForwardingMode -eq 'On')
+        if ($on) { Add-Result 'Exchange Online' 'External auto-forwarding' 'FAIL' "Allowed (On) in: $($on.Name -join ', ')" 'Set AutoForwardingMode to Off (data exfiltration / BEC).' }
+        else { Add-Result 'Exchange Online' 'External auto-forwarding' 'PASS' 'No outbound policy allows it (Automatic/Off = blocked).' }
     }
 
     Invoke-Check 'Exchange Online' 'Mailbox forwarding' {

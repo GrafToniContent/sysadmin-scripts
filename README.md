@@ -52,7 +52,7 @@ Unblock-File .\*.ps1
 
 - **Test in a lab first.** These scripts change real accounts and services.
 - Read the script – you should understand what runs in your environment.
-- Scripts 01 and 02 support `-WhatIf`. Use it.
+- Scripts 01, 02, 10 and 15 support `-WhatIf`. Use it.
 - The password file from script 01 contains initial passwords: hand it over securely and delete it.
 
 ## Contributing

@@ -17,13 +17,14 @@
     .\15-Set-AsrRules.ps1 -Mode Audit -WhatIf   # dry run
     .\15-Set-AsrRules.ps1 -Mode Audit
 #>
+#Requires -RunAsAdministrator
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [ValidateSet('Show', 'Audit', 'Block')][string]$Mode = 'Show',
     [switch]$ShowAuditEvents
 )
 
-# Standard protection rules recommended by Microsoft (GUIDs from Microsoft Learn)
+# Common ASR rules incl. Microsoft's standard protection rules (GUIDs from Microsoft Learn)
 $rules = [ordered]@{
     '56a863a9-875e-4185-98a7-b882c64b5ce5' = 'Block abuse of exploited vulnerable signed drivers'
     '9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2' = 'Block credential stealing from LSASS'
@@ -39,7 +40,7 @@ $rules = [ordered]@{
     'b2b3f03d-6a65-4f7b-a9c7-1c7ef74a9ba4' = 'Block untrusted and unsigned processes that run from USB'
     '7674ba52-37eb-4a4f-a9a1-f0f9a1619a2c' = 'Block Adobe Reader from creating child processes'
 }
-$actionName = @{ 0 = 'Off'; 1 = 'Block'; 2 = 'Audit'; 6 = 'Warn' }
+$actionName = @{ 0 = 'Off'; 1 = 'Block'; 2 = 'Audit'; 5 = 'Off'; 6 = 'Warn' }   # 5 = not configured
 
 $pref = Get-MpPreference
 $current = @{}
@@ -50,6 +51,7 @@ for ($i = 0; $i -lt @($pref.AttackSurfaceReductionRules_Ids).Count; $i++) {
 Write-Host "`n=== Attack Surface Reduction rules ===`n" -ForegroundColor Cyan
 foreach ($id in $rules.Keys) {
     $state = if ($current.ContainsKey($id)) { $actionName[$current[$id]] } else { 'Off' }
+    if (-not $state) { $state = 'Off' }   # unknown action value
     $color = @{ Block = 'Green'; Audit = 'Yellow'; Warn = 'Yellow'; Off = 'Red' }[$state]
     Write-Host ('{0,-6} {1}' -f $state, $rules[$id]) -ForegroundColor $color
 }

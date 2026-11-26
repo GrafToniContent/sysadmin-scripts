@@ -30,6 +30,7 @@
     Graf Toni Content - "Automate it once. Never do it again."
     Test in a lab environment first. Requires the ActiveDirectory module (RSAT).
 #>
+#Requires -Modules ActiveDirectory
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)][string]$CsvPath,
@@ -61,6 +62,18 @@ function ConvertTo-SamAccountName {
 }
 
 $users = Import-Csv -Path $CsvPath
+
+# Create the password file up front so that ONLY the current user can read it
+# (otherwise it inherits the folder permissions, e.g. a shared drive or desktop).
+if (-not $WhatIfPreference -and -not (Test-Path -Path $PasswordFile)) {
+    Set-Content -Path $PasswordFile -Value '"User","InitialPassword"' -WhatIf:$false
+    $acl = Get-Acl -Path $PasswordFile
+    $acl.SetAccessRuleProtection($true, $false)            # remove inherited permissions
+    foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRule($rule) }
+    $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($me, 'FullControl', 'Allow'))
+    Set-Acl -Path $PasswordFile -AclObject $acl -WhatIf:$false
+}
 
 foreach ($u in $users) {
     if ([string]::IsNullOrWhiteSpace($u.FirstName) -or [string]::IsNullOrWhiteSpace($u.LastName)) {
@@ -99,7 +112,7 @@ foreach ($u in $users) {
         try {
             New-ADUser @params -ErrorAction Stop
             [pscustomobject]@{ User = $sam; InitialPassword = $plain } |
-                Export-Csv -Path $PasswordFile -Append -NoTypeInformation
+                Export-Csv -Path $PasswordFile -Append -NoTypeInformation -WhatIf:$false
             Write-Host "Created $sam" -ForegroundColor Green
         }
         catch {

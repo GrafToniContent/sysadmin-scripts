@@ -3,7 +3,7 @@
     Read-only hardening audit for Windows Server 2025 (works on 2019/2022 too).
 
 .DESCRIPTION
-    Checks 14 common hardening settings and prints PASS / WARN / FAIL:
+    Checks 15 common hardening settings and prints PASS / WARN / FAIL:
       TLS 1.0 / 1.1 disabled, SMBv1 off, SMB signing, RDP with NLA, firewall profiles,
       Defender real-time protection, LSA protection (RunAsPPL), Credential Guard,
       WDigest, LLMNR, Print Spooler (on DCs), PowerShell 2.0 engine, last Windows update,
@@ -57,7 +57,13 @@ $audit = {
 }
 
 foreach ($pc in $ComputerName) {
-    $res = if ($pc -eq $env:COMPUTERNAME) { & $audit } else { Invoke-Command -ComputerName $pc -ScriptBlock $audit }
+    try {
+        $res = if ($pc -eq $env:COMPUTERNAME) { & $audit } else { Invoke-Command -ComputerName $pc -ScriptBlock $audit -ErrorAction Stop }
+    } catch {
+        # An unreachable server must never look like a clean one
+        Write-Warning "$pc : $($_.Exception.Message)"
+        $res = [pscustomobject]@{ Computer = $pc; Check = 'Connection'; Status = 'FAIL' }
+    }
     Write-Host "`n=== $pc ===" -ForegroundColor Cyan
     foreach ($r in $res) {
         Write-Host ("[{0}] {1}" -f $r.Status, $r.Check) -ForegroundColor (@{ PASS = 'Green'; WARN = 'Yellow'; FAIL = 'Red' }[$r.Status])

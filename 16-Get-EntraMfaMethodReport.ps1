@@ -16,6 +16,7 @@
 .EXAMPLE
     .\16-Get-EntraMfaMethodReport.ps1 -CsvPath C:\Temp\mfa-methods.csv
 #>
+#Requires -Modules Microsoft.Graph.Authentication, Microsoft.Graph.Reports
 [CmdletBinding()]
 param(
     [string]$CsvPath = (Join-Path $PWD "Entra-MfaMethods_$(Get-Date -Format 'yyyyMMdd').csv"),

@@ -43,7 +43,9 @@ if ($ActiveDirectory) {
 
 $events = Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-BitLocker/BitLocker Management'; Id = 845, 784 } -ErrorAction SilentlyContinue
 
-foreach ($v in Get-BitLockerVolume | Where-Object VolumeType -ne 'Removable') {
+# Get-BitLockerVolume only knows 'OperatingSystem' and 'Data' - use Get-Volume to skip USB sticks
+$fixed = @(Get-Volume | Where-Object { $_.DriveType -eq 'Fixed' -and $_.DriveLetter } | ForEach-Object { "$($_.DriveLetter):" })
+foreach ($v in Get-BitLockerVolume | Where-Object { $_.MountPoint -in $fixed }) {
     $rp = $v.KeyProtector | Where-Object KeyProtectorType -eq 'RecoveryPassword'
     $tpm = $v.KeyProtector | Where-Object KeyProtectorType -like 'Tpm*'
     Write-Host "`n=== $($v.MountPoint) ($($v.VolumeType)) ===" -ForegroundColor Cyan

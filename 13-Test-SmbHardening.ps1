@@ -51,7 +51,9 @@ $results = foreach ($pc in $ComputerName) {
         ,@('Client signing required',      [bool]$r.ClientSigningRequired, 'WARN', 'Set-SmbClientConfiguration -RequireSecuritySignature $true')
         ,@('Insecure guest logons off',    (-not $r.InsecureGuestLogons),  'FAIL', 'Set-SmbClientConfiguration -EnableInsecureGuestLogons $false')
         ,@('Encryption (shares/server)',   [bool]$r.EncryptData,           'WARN', 'Set-SmbServerConfiguration -EncryptData $true (test clients first)')
+        ,@('Unencrypted access rejected',  ((-not $r.EncryptData) -or [bool]$r.RejectUnencrypted), 'WARN', 'Set-SmbServerConfiguration -RejectUnencryptedAccess $true')
         ,@('NTLM blocked for SMB client',  ($r.BlockNTLM -eq $true),       'WARN', 'Server 2025: Set-SmbClientConfiguration -BlockNTLM $true (after NTLM audit)')
+        ,@('Auth rate limiter on',         (($r.AuthRateLimiterMs -eq 'n/a') -or ([int]$r.AuthRateLimiterMs -gt 0)), 'WARN', 'Server 2025: Set-SmbServerConfiguration -InvalidAuthenticationDelayTimeInMs 2000')
     )
     Write-Host "`n=== $pc ($($r.OS)) ===" -ForegroundColor Cyan
     foreach ($c in $checks) {

@@ -35,7 +35,9 @@ $xpath = "*[System[(EventID=4624) and TimeCreated[timediff(@SystemTime) <= $($Ho
 $events = foreach ($dc in $ComputerName) {
     Write-Host "Reading $dc ..." -ForegroundColor DarkGray
     try {
-        Get-WinEvent -ComputerName $dc -LogName Security -FilterXPath $xpath -MaxEvents $MaxEvents -ErrorAction Stop | ForEach-Object {
+        $raw = @(Get-WinEvent -ComputerName $dc -LogName Security -FilterXPath $xpath -MaxEvents $MaxEvents -ErrorAction Stop)
+        if ($raw.Count -ge $MaxEvents) { Write-Warning "$dc : -MaxEvents $MaxEvents reached - results are incomplete. Use a smaller -Hours or a higher -MaxEvents." }
+        $raw | ForEach-Object {
             $x = [xml]$_.ToXml()
             $d = @{}; foreach ($n in $x.Event.EventData.Data) { $d[$n.Name] = $n.'#text' }
             [pscustomobject]@{
@@ -48,7 +50,8 @@ $events = foreach ($dc in $ComputerName) {
             }
         }
     } catch {
-        if ($_.Exception.Message -notmatch 'No events') { Write-Warning "$dc : $($_.Exception.Message)" }
+        # 'No events found' is not an error - check the error ID, the message text is localized
+        if ($_.FullyQualifiedErrorId -notlike 'NoMatchingEventsFound*') { Write-Warning "$dc : $($_.Exception.Message)" }
     }
 }
 

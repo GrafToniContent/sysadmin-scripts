@@ -17,7 +17,7 @@
 
 .EXAMPLE
     # Run every hour via Task Scheduler (use a service account with read rights on the servers)
-    $action  = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -File C:\Scripts\04-Send-DiskAlert.ps1 -SmtpServer mail.lab.local -From monitor@lab.local -To it@lab.local'
+    $action  = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -File C:\Scripts\04-Send-DiskAlert.ps1 -ServerListPath C:\Scripts\servers.txt -SmtpServer mail.lab.local -From monitor@lab.local -To it@lab.local'
     $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 1)
     Register-ScheduledTask -TaskName 'DiskAlert' -Action $action -Trigger $trigger -User 'LAB\svc-monitor' -Password '<password>'
 
@@ -33,7 +33,9 @@ param(
     [Parameter(Mandatory)][string[]]$To
 )
 
-$servers = Get-Content -Path $ServerListPath | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() }
+# A missing or empty server list must fail loudly - otherwise the script would report "All disks OK"
+$servers = @(Get-Content -Path $ServerListPath -ErrorAction Stop | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() })
+if ($servers.Count -eq 0) { throw "Server list '$ServerListPath' is empty." }
 
 $alerts = foreach ($s in $servers) {
     try {

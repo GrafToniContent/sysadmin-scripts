@@ -12,7 +12,7 @@
       RestrictGuestInvites    Only admins + Guest Inviter role may invite guests
       RestrictUserCreation    Users can't register apps or create new tenants
       CABlockLegacyAuth       CA policy: block legacy authentication   (report-only, Entra P1)
-      CAMfaAdmins             CA policy: MFA for 14 admin roles        (report-only, Entra P1)
+      CAMfaAdmins             CA policy: MFA for 15 admin roles        (report-only, Entra P1)
       CAMfaAllUsers           CA policy: MFA for all users             (report-only, Entra P1)
       EnableUnifiedAuditLog   Turn on the unified audit log            (Exchange Online)
       EnableMailboxAudit      Make sure mailbox auditing is on         (Exchange Online)
@@ -33,6 +33,7 @@
     Test in a test tenant first. Inform users before disabling SMTP AUTH
     (multifunction printers / scanners / old apps!). Use at your own risk.
 #>
+#Requires -Modules Microsoft.Graph.Authentication, Microsoft.Graph.Identity.SignIns, Microsoft.Graph.Users
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
     [Parameter(Mandatory)]
@@ -94,7 +95,8 @@ function New-CaPolicyReportOnly([string]$Name, [hashtable]$Body) {
     }
 }
 
-switch ($Measure) {
+$failed = 0
+foreach ($m in $Measure) { try { switch ($m) {
     'DisableUserConsent' {
         if ($PSCmdlet.ShouldProcess('Authorization policy', 'Disable user consent for apps')) {
             $body = @{ defaultUserRolePermissions = @{ permissionGrantPoliciesAssigned = @() } }
@@ -126,7 +128,7 @@ switch ($Measure) {
         }
     }
     'CAMfaAdmins' {
-        # Role template IDs of privileged roles (Microsoft recommendation)
+        # Role template IDs of privileged roles (Microsoft recommendation + Teams Administrator)
         $roles = @(
             '62e90394-69f5-4237-9190-012177145e10', # Global Administrator
             'e8611ab8-c189-46e8-94e1-60213ab1f814', # Privileged Role Administrator
@@ -137,6 +139,7 @@ switch ($Measure) {
             'fe930be7-5e62-47db-91af-98c3a49a38b1', # User Administrator
             '9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3', # Application Administrator
             '158c047a-c907-4556-b7ef-446551a6b5f7', # Cloud Application Administrator
+            'b1be1c3e-b65d-4f19-8427-f6fa0d97feb9', # Conditional Access Administrator
             'c4e39bd9-1100-46d3-8c65-fb160da0071f', # Authentication Administrator
             'b0f54661-2d74-4c50-afa3-1ec803f12efe', # Billing Administrator
             '729827e3-9c14-49f7-bb1b-9608f156bbb8', # Helpdesk Administrator
@@ -162,7 +165,7 @@ switch ($Measure) {
             grantControls = @{ operator = 'OR'; builtInControls = @('mfa') }
         }
     }
-}
+} } catch { $failed++; Write-Log "FAIL  $m : $($_.Exception.Message)" 'Red' } }
 #endregion
 
 #region --- Exchange Online --------------------------------------------------------
@@ -170,7 +173,7 @@ if ($Measure | Where-Object { $_ -in $exoMeasures }) {
     Connect-ExchangeOnline -ShowBanner:$false
     Write-Log 'Connected to Exchange Online' 'Cyan'
 
-    switch ($Measure) {
+    foreach ($m in $Measure) { try { switch ($m) {
         'EnableUnifiedAuditLog' {
             if ((Get-AdminAuditLogConfig).UnifiedAuditLogIngestionEnabled) { Write-Log 'SKIP  Unified audit log already enabled' 'DarkGray' }
             elseif ($PSCmdlet.ShouldProcess('Organization', 'Enable unified audit log')) {
@@ -200,13 +203,16 @@ if ($Measure | Where-Object { $_ -in $exoMeasures }) {
             if ($p.AutoForwardingMode -eq 'Off') { Write-Log 'SKIP  External auto-forwarding already Off' 'DarkGray' }
             elseif ($PSCmdlet.ShouldProcess($p.Identity, 'Set AutoForwardingMode Off')) {
                 Set-HostedOutboundSpamFilterPolicy -Identity $p.Identity -AutoForwardingMode Off
-                Write-Log 'DONE  Automatic external forwarding blocked.' 'Green'
+                Write-Log 'DONE  Automatic external forwarding blocked (default policy).' 'Green'
             }
+            # Custom policies override the default for their users - only report them, never change them silently
+            $custom = @(Get-HostedOutboundSpamFilterPolicy | Where-Object { -not $_.IsDefault -and $_.AutoForwardingMode -eq 'On' })
+            if ($custom) { Write-Log "WARN  Custom outbound policies still allow forwarding: $($custom.Name -join ', ')" 'Yellow' }
         }
-    }
+    } } catch { $failed++; Write-Log "FAIL  $m : $($_.Exception.Message)" 'Red' } }
     Disconnect-ExchangeOnline -Confirm:$false
 }
 #endregion
 
 if (Get-MgContext) { Disconnect-MgGraph | Out-Null }
-Write-Log "Finished. Log: $LogPath" 'Cyan'
+Write-Log "Finished with $failed failed measure(s). Log: $LogPath" $(if ($failed) { 'Red' } else { 'Cyan' })
